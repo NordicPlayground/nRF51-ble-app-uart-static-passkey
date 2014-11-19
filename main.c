@@ -95,6 +95,8 @@ static dm_application_instance_t        m_app_handle;                           
 static dm_handle_t                      m_dm_handle;                                /**< Device manager's instance handle. */
 static app_timer_id_t                   m_sec_req_timer_id;                         /**< Security Request timer. */
 
+static bool                            m_memory_access_in_progress = false;        /**< Flag to keep track of ongoing operations on persistent memory. */
+
 
 /**@brief     Error handler function, which is called when an error has occurred.
  *
@@ -365,13 +367,7 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
             // Don't send delayed Security Request if security procedure is already in progress.
             err_code = app_timer_stop(m_sec_req_timer_id);
             APP_ERROR_CHECK(err_code);
-//			p_passkey = (char *)p_ble_evt->evt.gap_evt.params.passkey_display.passkey;
             break;        
-        
-        case BLE_GATTS_EVT_SYS_ATTR_MISSING:
-            err_code = sd_ble_gatts_sys_attr_set(m_conn_handle, NULL, 0);
-            APP_ERROR_CHECK(err_code);
-            break;
 
         case BLE_GAP_EVT_TIMEOUT:
             if (p_ble_evt->evt.gap_evt.params.timeout.src == BLE_GAP_TIMEOUT_SRC_ADVERTISEMENT)
@@ -407,8 +403,8 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
 static void ble_evt_dispatch(ble_evt_t * p_ble_evt)
 {
     dm_ble_evt_handler(p_ble_evt);
-    ble_conn_params_on_ble_evt(p_ble_evt);
     ble_nus_on_ble_evt(&m_nus, p_ble_evt);
+    ble_conn_params_on_ble_evt(p_ble_evt);
     on_ble_evt(p_ble_evt);
 }
 
@@ -455,7 +451,7 @@ static void device_manager_init(void)
     APP_ERROR_CHECK(err_code);
 
     // Clear all bonded centrals if the Bonds Delete button is pushed.
-    //init_data.clear_persistent_data = (nrf_gpio_pin_read(BOND_DELETE_ALL_BUTTON_ID) == 0);
+    init_data.clear_persistent_data = 0;// (nrf_gpio_pin_read(BOND_DELETE_ALL_BUTTON_ID) == 0);
 
     err_code = dm_init(&init_data);
     APP_ERROR_CHECK(err_code);
@@ -477,6 +473,41 @@ static void device_manager_init(void)
     err_code = dm_register(&m_app_handle, &register_param);
     APP_ERROR_CHECK(err_code);
 }
+/**@brief Function for handling the Application's system events.
+ *
+ * @param[in]   sys_evt   system event.
+ */
+static void on_sys_evt(uint32_t sys_evt)
+{
+    switch (sys_evt)
+    {
+        case NRF_EVT_FLASH_OPERATION_SUCCESS:
+        case NRF_EVT_FLASH_OPERATION_ERROR:
+            if (m_memory_access_in_progress)
+            {
+                m_memory_access_in_progress = false;
+                advertising_start();
+            }
+            break;
+        default:
+            // No implementation needed.
+            break;
+    }
+}
+
+/**@brief Function for dispatching a system event to interested modules.
+ *
+ * @details This function is called from the System event interrupt handler after a system
+ *          event has been received.
+ *
+ * @param[in]   sys_evt   System stack event.
+ */
+static void sys_evt_dispatch(uint32_t sys_evt)
+{
+    pstorage_sys_event_handler(sys_evt);
+    on_sys_evt(sys_evt);
+}
+
 /**@brief   Function for the S110 SoftDevice initialization.
  *
  * @details This function initializes the S110 SoftDevice and the BLE event interrupt.
@@ -497,6 +528,10 @@ static void ble_stack_init(void)
     
     // Subscribe for BLE events.
     err_code = softdevice_ble_evt_handler_set(ble_evt_dispatch);
+    APP_ERROR_CHECK(err_code);
+    
+    // Register with the SoftDevice handler module for BLE events.
+    err_code = softdevice_sys_evt_handler_set(sys_evt_dispatch);
     APP_ERROR_CHECK(err_code);
 }
 
