@@ -362,8 +362,10 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
             advertising_start();
 
             break;
-                    
-        case BLE_GAP_EVT_PASSKEY_DISPLAY:
+        
+        case BLE_GAP_EVT_SEC_PARAMS_REQUEST:
+        case BLE_GAP_EVT_SEC_INFO_REQUEST:
+//        case BLE_GAP_EVT_PASSKEY_DISPLAY:
             // Don't send delayed Security Request if security procedure is already in progress.
             err_code = app_timer_stop(m_sec_req_timer_id);
             APP_ERROR_CHECK(err_code);
@@ -385,6 +387,10 @@ static void on_ble_evt(ble_evt_t * p_ble_evt)
             }
             break;
 
+        case BLE_GAP_EVT_AUTH_STATUS:
+            //Disconnect and start advertising again if you get PIN or KEY missing
+            break;
+            
         default:
             // No implementation needed.
             break;
@@ -429,8 +435,6 @@ static uint32_t device_manager_evt_handler(dm_handle_t const    * p_handle,
                 err_code = app_timer_start(m_sec_req_timer_id, SECURITY_REQUEST_DELAY, NULL);
                 APP_ERROR_CHECK(err_code);
             }
-            err_code = app_timer_start(m_sec_req_timer_id, SECURITY_REQUEST_DELAY, NULL);
-            APP_ERROR_CHECK(err_code);
             break;
         default:
             break;
